@@ -6,13 +6,13 @@ use bevy_rapier2d::{
 
 use crate::{
     enemy::Enemy,
-    game::{BaseStats, GameTimer},
+    game::{BaseStats, GameState, GameTimer},
     resolution::Resolution,
 };
 
 pub struct EnemySpawner;
 
-const SPAWN_TIME: f32 = 3.0;
+const SPAWN_TIME: f32 = 1.0;
 
 impl Plugin for EnemySpawner {
     fn build(&self, app: &mut App) {
@@ -20,7 +20,7 @@ impl Plugin for EnemySpawner {
             SPAWN_TIME,
             TimerMode::Repeating,
         )));
-        app.add_systems(Update, spawn_enemy);
+        app.add_systems(Update, (spawn_enemy).run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -48,8 +48,9 @@ fn spawn_enemy(
     commands.spawn((
         Enemy {
             xp_drop: 12.0 * difficulity,
+            death_processed: false,
         },
-        BaseStats::new(25.0 * difficulity, 100.0, 100.0 * difficulity),
+        BaseStats::new(25.0 * difficulity, 60.0, 100.0 * difficulity),
         Sprite {
             image: alien_texture.clone(),
             ..Default::default()

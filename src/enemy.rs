@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 
 use crate::{
-    game::BaseStats,
-    player::{Experience, Player, gain_xp},
+    game::{BaseStats, GameState},
+    player::{GainXp, Player},
 };
 
 pub struct EnemeyPlugin;
@@ -13,17 +13,28 @@ impl Plugin for EnemeyPlugin {
             2.0,
             TimerMode::Repeating,
         )));
-        app.add_systems(Update, (update_enemies, separate_enemies));
+        app.add_message::<DamageEnemy>();
+        app.add_systems(
+            Update,
+            (update_enemies, separate_enemies, damage_enemies).run_if(in_state(GameState::Playing)),
+        );
     }
 }
 
 #[derive(Component)]
 pub struct Enemy {
     pub xp_drop: f32,
+    pub death_processed: bool,
 }
 
 #[derive(Resource)]
 pub struct AttackCooldown(pub Timer);
+
+#[derive(Message)]
+pub struct DamageEnemy {
+    pub target: Entity,
+    pub amount: f32,
+}
 
 fn update_enemies(
     mut enemy_query: Query<(&mut Transform, &BaseStats), With<Enemy>>,
@@ -71,17 +82,27 @@ fn separate_enemies(
     }
 }
 
-pub fn damage_enemy(
-    commands: &mut Commands,
-    experience_query: &mut Query<(&mut Experience, &mut BaseStats), (With<Player>, Without<Enemy>)>,
-    stats: &mut BaseStats,
-    enemy_entity: Entity,
-    enemy: &Enemy,
-    amount: f32,
+pub fn damage_enemies(
+    mut commands: Commands,
+    mut damage_messages: MessageReader<DamageEnemy>,
+    mut message_writer: MessageWriter<GainXp>,
+    mut stats_query: Query<(&mut BaseStats, &mut Enemy)>,
 ) {
-    stats.health.take_damage(amount);
-    if stats.health.is_dead() {
-        commands.entity(enemy_entity).despawn();
-        gain_xp(experience_query, enemy.xp_drop);
+    for message in damage_messages.read() {
+        if let Ok((mut stats, mut enemy)) = stats_query.get_mut(message.target) {
+            if enemy.death_processed {
+                continue;
+            }
+            println!("damage taken: {}", message.amount);
+            stats.health.take_damage(message.amount);
+
+            if stats.health.is_dead() {
+                commands.entity(message.target).despawn();
+                enemy.death_processed = true;
+                message_writer.write(GainXp {
+                    amount: enemy.xp_drop,
+                });
+            }
+        }
     }
 }

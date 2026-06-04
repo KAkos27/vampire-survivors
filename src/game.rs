@@ -1,12 +1,24 @@
 use bevy::prelude::*;
 
+use crate::abilities::fire_aura;
 use crate::abilities::projectile;
 use crate::enemy;
 use crate::enemy_spawner;
 use crate::player;
+use crate::player::Experience;
+use crate::player::Player;
 use crate::resolution;
 
 pub struct GamePlugin;
+
+#[derive(States, Debug, Clone, Copy, Eq, PartialEq, Hash, Default)]
+pub enum GameState {
+    #[default]
+    Playing,
+    LevelUp,
+    Paused,
+    MainMenu,
+}
 
 #[derive(Component)]
 pub struct Direction(pub Vec3);
@@ -17,13 +29,14 @@ pub struct GameTimerText;
 #[derive(Resource)]
 pub struct GameTimer(pub Timer);
 
-#[derive(Clone)]
+#[derive(Reflect, Clone)]
 pub struct Health {
     pub max: f32,
     pub current: f32,
 }
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct BaseStats {
     pub damage: f32,
     pub speed: f32,
@@ -62,16 +75,22 @@ impl BaseStats {
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
+        app.register_type::<Player>();
+        app.register_type::<Health>();
+        app.register_type::<Experience>();
+        app.register_type::<BaseStats>();
+        app.init_state::<GameState>();
         app.insert_resource(GameTimer(Timer::from_seconds(30.0 * 60.0, TimerMode::Once)));
         app.add_plugins((
             player::PlayerPlugin,
             enemy::EnemeyPlugin,
             projectile::ProjectilePlugin,
+            fire_aura::FireAuraPlugin,
             resolution::ResolutionPlugin,
             enemy_spawner::EnemySpawner,
         ));
         app.add_systems(Startup, setup_scene);
-        app.add_systems(Update, update_timer);
+        app.add_systems(Update, (update_timer).run_if(in_state(GameState::Playing)));
     }
 }
 

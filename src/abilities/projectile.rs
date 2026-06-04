@@ -6,9 +6,9 @@ use bevy_rapier2d::{
 };
 
 use crate::{
-    enemy::{Enemy, damage_enemy},
-    game::BaseStats,
-    player::{Experience, Player},
+    enemy::{DamageEnemy, Enemy},
+    game::{BaseStats, GameState},
+    player::Player,
 };
 
 pub struct ProjectilePlugin;
@@ -16,14 +16,16 @@ pub struct ProjectilePlugin;
 impl Plugin for ProjectilePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ShootTimer(Timer::from_seconds(1.0, TimerMode::Repeating)))
-            .add_systems(Update, (shoot, update_projectile, on_projectile_hit));
+            .add_systems(
+                Update,
+                (shoot, update_projectile, on_projectile_hit).run_if(in_state(GameState::Playing)),
+            );
     }
 }
 
 #[derive(Component)]
 pub struct Projectile {
     pub direction: Vec3,
-    pub damage: f32,
     pub speed: f32,
 }
 
@@ -35,13 +37,13 @@ fn shoot(
     asset_server: Res<AssetServer>,
     time: Res<Time>,
     mut shoot_timer: ResMut<ShootTimer>,
-    player_query: Query<(&Transform, &BaseStats), With<Player>>,
+    player_query: Query<&Transform, With<Player>>,
     enemy_query: Query<&Transform, (Without<Player>, With<Enemy>)>,
 ) {
     if !shoot_timer.0.tick(time.delta()).just_finished() {
         return;
     }
-    let Ok((player_transform, stats)) = player_query.single() else {
+    let Ok(player_transform) = player_query.single() else {
         return;
     };
 
@@ -62,7 +64,6 @@ fn shoot(
     commands.spawn((
         Projectile {
             direction,
-            damage: stats.damage,
             speed: 300.0,
         },
         Sprite {
@@ -88,33 +89,33 @@ fn update_projectile(projectile_query: Query<(&Projectile, &mut Transform)>, tim
 fn on_projectile_hit(
     mut commands: Commands,
     mut collision_events: MessageReader<CollisionEvent>,
+    mut demage_messages: MessageWriter<DamageEnemy>,
+    enemy_query: Query<Entity, With<Enemy>>,
+    player_query: Query<&BaseStats, With<Player>>,
     projectile_query: Query<&Projectile>,
-    mut enemy_query: Query<(Entity, &mut BaseStats, &Enemy)>,
-    mut experience_query: Query<(&mut Experience, &mut BaseStats), (With<Player>, Without<Enemy>)>,
 ) {
+    let Ok(stats) = player_query.single() else {
+        return;
+    };
+
     for event in collision_events.read() {
         let CollisionEvent::Started(first_col, second_col, _) = event else {
             continue;
         };
 
-        let (projectile_entity, other_entity, projectile) =
-            if let Ok(projectile) = projectile_query.get(*first_col) {
-                (*first_col, *second_col, projectile)
-            } else if let Ok(projectile) = projectile_query.get(*second_col) {
-                (*second_col, *first_col, projectile)
-            } else {
-                continue;
-            };
+        let (projectile_entity, other_entity) = if projectile_query.get(*first_col).is_ok() {
+            (*first_col, *second_col)
+        } else if projectile_query.get(*second_col).is_ok() {
+            (*second_col, *first_col)
+        } else {
+            continue;
+        };
 
-        if let Ok((enemy_entity, mut stats, enemy)) = enemy_query.get_mut(other_entity) {
-            damage_enemy(
-                &mut commands,
-                &mut experience_query,
-                &mut stats,
-                enemy_entity,
-                enemy,
-                projectile.damage,
-            );
+        if let Ok(enemy_entity) = enemy_query.get(other_entity) {
+            demage_messages.write(DamageEnemy {
+                target: enemy_entity,
+                amount: stats.damage,
+            });
             commands.entity(projectile_entity).despawn();
         }
     }

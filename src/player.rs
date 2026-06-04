@@ -7,29 +7,35 @@ use bevy_rapier2d::{
 
 use crate::{
     enemy::{AttackCooldown, Enemy},
-    game::{BaseStats, Direction},
+    game::{BaseStats, Direction, GameState},
 };
 
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_player).add_systems(
+        app.add_message::<GainXp>();
+        app.add_systems(Startup, setup_player);
+        app.add_systems(
             Update,
             (
                 update_player,
-                on_player_hit,
                 update_hp_bar,
                 update_debug_text,
-            ),
+                on_player_hit,
+                gain_xp,
+            )
+                .run_if(in_state(GameState::Playing)),
         );
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct Player;
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct Experience {
     pub current: f32,
     pub level: u32,
@@ -45,11 +51,16 @@ pub struct HpBarFill;
 #[derive(Component)]
 pub struct DebugText;
 
+#[derive(Message)]
+pub struct GainXp {
+    pub amount: f32,
+}
+
 fn setup_player(mut commands: Commands, asset_server: Res<AssetServer>) {
     let player_texture = asset_server.load("player.png");
     commands.spawn((
         Player,
-        BaseStats::new(50.0, 200.0, 50.0),
+        BaseStats::new(30.0, 125.0, 50.0),
         Experience {
             current: 0.0,
             level: 1,
@@ -200,6 +211,28 @@ fn update_hp_bar(
     node.width = Val::Percent(percent);
 }
 
+pub fn gain_xp(
+    mut message_reader: MessageReader<GainXp>,
+    mut experience_query: Query<(&mut Experience, &mut BaseStats), With<Player>>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    for message in message_reader.read() {
+        if let Ok((mut experience, mut stats)) = experience_query.single_mut() {
+            experience.current += message.amount;
+
+            if experience.current >= experience.xp_to_next_level {
+                let remaining = experience.current - experience.xp_to_next_level;
+                experience.level += 1;
+                experience.current = remaining;
+                experience.xp_to_next_level *= 2.0;
+
+                update_stats(&mut stats, experience.level);
+                next_state.set(GameState::LevelUp);
+            }
+        }
+    }
+}
+
 fn update_stats(stats: &mut BaseStats, level: u32) {
     let multiplier = 1.0 + (level as f32 - 1.0) * 0.1;
     let health_ratio = stats.health.current / stats.health.max;
@@ -208,26 +241,4 @@ fn update_stats(stats: &mut BaseStats, level: u32) {
     stats.speed = stats.base_speed * multiplier;
     stats.health.max = stats.base_health * multiplier;
     stats.health.current = stats.health.max * health_ratio;
-}
-
-pub fn gain_xp(
-    experience_query: &mut Query<(&mut Experience, &mut BaseStats), (With<Player>, Without<Enemy>)>,
-    xp_drop: f32,
-) {
-    if let Ok((mut experience, mut stats)) = experience_query.single_mut() {
-        experience.current += xp_drop;
-
-        if experience.current >= experience.xp_to_next_level {
-            let remaining = experience.current - experience.xp_to_next_level;
-            experience.level += 1;
-            experience.current = remaining;
-            experience.xp_to_next_level *= 2.0;
-
-            print!(
-                "Level up!\n lvl: {},\n exp: {},\n exp to level: {}\n",
-                experience.level, experience.current, experience.xp_to_next_level
-            );
-            update_stats(&mut stats, experience.level);
-        }
-    }
 }
