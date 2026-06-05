@@ -15,11 +15,17 @@ pub struct ProjectilePlugin;
 
 impl Plugin for ProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(ShootTimer(Timer::from_seconds(1.0, TimerMode::Repeating)))
-            .add_systems(
-                Update,
-                (shoot, update_projectile, on_projectile_hit).run_if(in_state(GameState::Playing)),
-            );
+        app.insert_resource(ShootTimer(Timer::from_seconds(1.0, TimerMode::Repeating)));
+        app.add_systems(
+            Update,
+            (
+                shoot,
+                update_projectile,
+                on_projectile_hit,
+                despawn_expired_projectiles,
+            )
+                .run_if(in_state(GameState::Playing)),
+        );
     }
 }
 
@@ -27,6 +33,7 @@ impl Plugin for ProjectilePlugin {
 pub struct Projectile {
     pub direction: Vec3,
     pub speed: f32,
+    pub lifetime: Timer,
 }
 
 #[derive(Resource)]
@@ -65,6 +72,7 @@ fn shoot(
         Projectile {
             direction,
             speed: 300.0,
+            lifetime: Timer::from_seconds(10.0, TimerMode::Once),
         },
         Sprite {
             image: asset_server.load("bullet.png"),
@@ -117,6 +125,20 @@ fn on_projectile_hit(
                 amount: stats.damage,
             });
             commands.entity(projectile_entity).despawn();
+        }
+    }
+}
+
+fn despawn_expired_projectiles(
+    mut commands: Commands,
+    mut projectile_query: Query<(Entity, &mut Projectile)>,
+    time: Res<Time>,
+) {
+    for (entity, mut projectile) in &mut projectile_query {
+        projectile.lifetime.tick(time.delta());
+
+        if projectile.lifetime.is_finished() {
+            commands.entity(entity).despawn();
         }
     }
 }

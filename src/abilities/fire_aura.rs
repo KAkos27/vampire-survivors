@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use bevy::prelude::*;
 use bevy_rapier2d::{
     dynamics::RigidBody,
@@ -15,37 +17,82 @@ pub struct FireAuraPlugin;
 
 impl Plugin for FireAuraPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(AuraDamageTimer(Timer::from_seconds(
-            1.0,
-            TimerMode::Repeating,
-        )));
+        app.add_message::<UpgradeFireAura>();
         app.add_systems(Startup, setup_aura);
         app.add_systems(
             Update,
-            (update_aura_position, on_enemy_hit).run_if(in_state(GameState::Playing)),
+            (update_aura_position, on_enemy_hit, upgrade_fire_aura)
+                .run_if(in_state(GameState::Playing)),
         );
     }
 }
 
 #[derive(Component)]
 pub struct FireAura {
+    level: u32,
+}
+
+#[derive(Message)]
+pub struct UpgradeFireAura;
+
+struct FireAuraStats {
     radius: f32,
+    damage_muliplier: f32,
+    cooldown: f32,
 }
 
 #[derive(Resource)]
 pub struct AuraDamageTimer(pub Timer);
+
+impl FireAura {
+    fn get_stats(&self) -> FireAuraStats {
+        match self.level {
+            1 => FireAuraStats {
+                radius: 100.0,
+                damage_muliplier: 0.25,
+                cooldown: 1.0,
+            },
+            2 => FireAuraStats {
+                radius: 120.0,
+                damage_muliplier: 0.25,
+                cooldown: 1.0,
+            },
+            3 => FireAuraStats {
+                radius: 120.0,
+                damage_muliplier: 0.5,
+                cooldown: 1.0,
+            },
+            4 => FireAuraStats {
+                radius: 150.0,
+                damage_muliplier: 0.5,
+                cooldown: 1.0,
+            },
+            _ => FireAuraStats {
+                radius: 200.0,
+                damage_muliplier: 0.8,
+                cooldown: 0.8,
+            },
+        }
+    }
+}
 
 fn setup_aura(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let aura = FireAura { radius: 100.0 };
+    let aura = FireAura { level: 1 };
+    let stats = aura.get_stats();
+
+    commands.insert_resource(AuraDamageTimer(Timer::from_seconds(
+        stats.cooldown,
+        TimerMode::Repeating,
+    )));
 
     commands.spawn((
         Mesh2d(meshes.add(Circle::new(1.0))),
         MeshMaterial2d(materials.add(Color::srgb(1.0, 0.5, 0.5))),
-        Transform::from_scale(Vec3::splat(aura.radius)),
+        Transform::from_scale(Vec3::splat(stats.radius)),
         RigidBody::KinematicPositionBased,
         Collider::ball(1.0),
         Sensor,
@@ -53,6 +100,29 @@ fn setup_aura(
         ActiveCollisionTypes::KINEMATIC_KINEMATIC,
         aura,
     ));
+}
+
+fn upgrade_fire_aura(
+    mut messages: MessageReader<UpgradeFireAura>,
+    mut aura_query: Query<(&mut FireAura, &mut Transform, &mut Collider)>,
+    mut damage_timer: ResMut<AuraDamageTimer>,
+) {
+    for _ in messages.read() {
+        let Ok((mut aura, mut transform, mut collider)) = aura_query.single_mut() else {
+            return;
+        };
+
+        aura.level += 1;
+
+        let stats = aura.get_stats();
+
+        transform.scale = Vec3::splat(stats.radius);
+        *collider = Collider::ball(1.0);
+
+        damage_timer
+            .0
+            .set_duration(Duration::from_secs_f32(stats.cooldown));
+    }
 }
 
 fn update_aura_position(
@@ -100,9 +170,12 @@ fn on_enemy_hit(
             };
 
         if let Ok(enemy_entity) = enemy_query.get(other_entity) {
+            let Ok(aura) = aura_query.single() else {
+                return;
+            };
             demage_messages.write(DamageEnemy {
                 target: enemy_entity,
-                amount: stats.damage * 0.25,
+                amount: stats.damage * aura.get_stats().damage_muliplier,
             });
         }
     }

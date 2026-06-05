@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use crate::abilities::fire_aura;
+use crate::abilities::meteor;
 use crate::abilities::projectile;
 use crate::enemy;
 use crate::enemy_spawner;
@@ -86,6 +87,7 @@ impl Plugin for GamePlugin {
             enemy::EnemeyPlugin,
             projectile::ProjectilePlugin,
             fire_aura::FireAuraPlugin,
+            meteor::MeteorPlugin,
             resolution::ResolutionPlugin,
             enemy_spawner::EnemySpawner,
         ));

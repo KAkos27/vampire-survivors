@@ -6,6 +6,7 @@ use bevy_rapier2d::{
 };
 
 use crate::{
+    abilities::fire_aura::UpgradeFireAura,
     enemy::{AttackCooldown, Enemy},
     game::{BaseStats, Direction, GameState},
 };
@@ -227,7 +228,8 @@ pub fn gain_xp(
                 experience.xp_to_next_level *= 2.0;
 
                 update_stats(&mut stats, experience.level);
-                next_state.set(GameState::LevelUp);
+
+                // next_state.set(GameState::LevelUp);
             }
         }
     }
